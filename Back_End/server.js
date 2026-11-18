@@ -1,21 +1,19 @@
-
 const express = require("express");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
-
-dotenv.config();
+const dotenv = require("dotenv");
 
 const connectDB = require("./config/db");
 
 const authRoutes = require("./routers/authRoutes");
 const dashboardRoutes = require("./routers/dashboardRoutes");
 const busRoutes = require("./routers/busRoutes");
+const destinationRoutes = require("./routers/destinationRoutes");
+const adminRoutes = require("./routers/adminRoutes");
 
-const errorMiddleware = require("./middleware/errorMiddleware");
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
 app.use(
     cors({
@@ -27,33 +25,43 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-app.get("/", (req, res) => {
-    return res.status(200).json({
-        success: true,
-        message: "DIU TransportX Backend is running!"
-    });
-});
-
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/buses", busRoutes);
+app.use("/api/destinations", destinationRoutes);
+app.use("/api/admin", adminRoutes);
 
-app.use((req, res) => {
-    return res.status(404).json({
+app.use(function (req, res) {
+    res.status(404).json({
         success: false,
-        message: "Route not found"
+        message: "API route not found"
     });
 });
 
-app.use(errorMiddleware);
+app.use(function (error, req, res, next) {
+    console.error(error);
 
-connectDB()
-    .then(() => {
-        app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).json({
+        success: false,
+        message: error.message || "Internal server error"
+    });
+});
+
+const PORT = process.env.PORT || 5000;
+
+async function startServer() {
+    try {
+        await connectDB();
+
+        app.listen(PORT, function () {
+            console.log(`Server is running on port ${PORT}`);
         });
-    })
-    .catch((error) => {
+    } catch (error) {
         console.error("Failed to start server:", error.message);
         process.exit(1);
-    });
+    }
+}
+
+startServer();

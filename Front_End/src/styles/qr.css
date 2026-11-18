@@ -1,0 +1,545 @@
+
+/* Bus QR Code Management */
+
+.qr-code-section {
+    margin-top: 24px;
+}
+
+.qr-code-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px solid #ccebd8;
+    border-radius: 10px;
+    color: #087f5b;
+    background: #eaf9f0;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.22s ease;
+}
+
+.qr-code-button:hover {
+    border-color: #087f5b;
+    background: #d9f3e4;
+    transform: translateY(-2px);
+}
+
+.qr-code-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.qr-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(15, 35, 27, 0.65);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.qr-modal {
+    position: relative;
+    width: 100%;
+    max-width: 440px;
+    padding: 30px;
+    border: 1px solid #e2ece6;
+    border-radius: 22px;
+    background: #ffffff;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    animation: qrModalAppear 0.25s ease;
+}
+
+@keyframes qrModalAppear {
+    from {
+        opacity: 0;
+        transform: translateY(15px) scale(0.97);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.qr-modal-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    display: grid;
+    place-items: center;
+    width: 35px;
+    height: 35px;
+    border: 1px solid #e4ece8;
+    border-radius: 10px;
+    color: #60776a;
+    background: #f8fbf9;
+    font-size: 19px;
+    cursor: pointer;
+}
+
+.qr-modal-close:hover {
+    color: #b42318;
+    border-color: #f1c7c4;
+    background: #fff5f4;
+}
+
+.qr-modal h2 {
+    margin: 5px 0 8px;
+    color: #193c30;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 23px;
+    font-weight: 800;
+}
+
+.qr-modal-description {
+    margin: 0 0 22px;
+    color: #82938b;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.qr-bus-number {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 8px 16px;
+    border: 1px solid #ccebd8;
+    border-radius: 30px;
+    color: #087f5b;
+    background: #eaf9f0;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.qr-image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 250px;
+    margin: 0 auto 22px;
+    padding: 20px;
+    border: 1px solid #e4ece8;
+    border-radius: 16px;
+    background: #ffffff;
+}
+
+.qr-image {
+    display: block;
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    object-fit: contain;
+}
+
+.qr-modal-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.qr-download-button,
+.qr-print-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 43px;
+    padding: 11px 17px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.22s ease;
+}
+
+.qr-download-button {
+    border: none;
+    color: #ffffff;
+    background: linear-gradient(135deg, #0da875, #056044);
+    box-shadow: 0 5px 14px rgba(8, 127, 91, 0.17);
+}
+
+.qr-download-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 9px 19px rgba(8, 127, 91, 0.23);
+}
+
+.qr-print-button {
+    border: 1px solid #dce9e1;
+    color: #426252;
+    background: #f8fbf9;
+}
+
+.qr-print-button:hover {
+    border-color: #a8d8bc;
+    color: #087f5b;
+    background: #edf8f1;
+}
+
+.qr-instruction {
+    margin: 20px 0 0;
+    padding: 13px;
+    border: 1px solid #e2ece6;
+    border-radius: 11px;
+    color: #71847a;
+    background: #f8fbf9;
+    font-size: 11px;
+    line-height: 1.7;
+}
+
+.qr-loading {
+    padding: 30px 15px;
+    color: #758780;
+    font-size: 13px;
+}
+
+.qr-error {
+    margin: 15px 0;
+    padding: 13px;
+    border: 1px solid #f1c7c4;
+    border-radius: 10px;
+    color: #a32828;
+    background: #fff7f6;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* QR Code responsive design */
+
+@media (max-width: 600px) {
+    .qr-modal {
+        padding: 25px 18px;
+    }
+
+    .qr-modal h2 {
+        font-size: 20px;
+    }
+
+    .qr-image-container {
+        min-height: 220px;
+        padding: 15px;
+    }
+
+    .qr-image {
+        max-width: 210px;
+    }
+
+    .qr-modal-actions {
+        flex-direction: column;
+    }
+
+    .qr-download-button,
+    .qr-print-button {
+        width: 100%;
+    }
+}
+
+/* QR Code printing */
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    .qr-modal,
+    .qr-modal * {
+        visibility: visible;
+    }
+
+    .qr-modal-overlay {
+        position: absolute;
+        inset: 0;
+        padding: 0;
+        background: #ffffff;
+        backdrop-filter: none;
+    }
+
+    .qr-modal {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        max-width: none;
+        border: none;
+        box-shadow: none;
+    }
+
+    .qr-modal-close,
+    .qr-modal-actions,
+    .qr-instruction {
+        display: none !important;
+    }
+
+    .qr-image {
+        max-width: 300px;
+    }
+}
+
+/* QR Verification Success Animation */
+
+.qr-verification-section {
+    text-align: center;
+}
+
+.qr-success-animation {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 35px 20px 30px;
+    animation: qrSuccessAppear 0.5s ease both;
+}
+
+.qr-success-circle {
+    display: grid;
+    place-items: center;
+    width: 105px;
+    height: 105px;
+    border: 5px solid #c9f2d8;
+    border-radius: 50%;
+    color: #ffffff;
+    background: linear-gradient(145deg, #22c875, #079455);
+    box-shadow:
+        0 0 0 10px rgba(34, 200, 117, 0.09),
+        0 12px 30px rgba(8, 127, 91, 0.22);
+    animation: qrSuccessBoom 0.65s cubic-bezier(0.17, 0.89, 0.32, 1.49) both;
+}
+
+.qr-success-check {
+    width: 58px;
+    height: 58px;
+    overflow: visible;
+}
+
+.qr-success-check path {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    animation: qrCheckDraw 0.45s 0.35s ease forwards;
+}
+
+.qr-success-animation h2 {
+    margin: 24px 0 8px;
+    color: #087f5b;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 25px;
+    font-weight: 800;
+    animation: qrSuccessText 0.4s 0.25s ease both;
+}
+
+.qr-success-animation p {
+    max-width: 450px;
+    margin: 0;
+    color: #758780;
+    font-size: 13px;
+    line-height: 1.7;
+    animation: qrSuccessText 0.4s 0.35s ease both;
+}
+
+@keyframes qrSuccessBoom {
+    0% {
+        opacity: 0;
+        transform: scale(0.2);
+    }
+
+    65% {
+        opacity: 1;
+        transform: scale(1.18);
+    }
+
+    82% {
+        transform: scale(0.92);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes qrCheckDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes qrSuccessAppear {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes qrSuccessText {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 480px) {
+    .qr-success-circle {
+        width: 90px;
+        height: 90px;
+    }
+
+    .qr-success-check {
+        width: 50px;
+        height: 50px;
+    }
+
+    .qr-success-animation h2 {
+        font-size: 21px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .qr-success-animation,
+    .qr-success-circle,
+    .qr-success-check path,
+    .qr-success-animation h2,
+    .qr-success-animation p {
+        animation: none !important;
+    }
+
+    .qr-success-check path {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* QR Verification Rejection Animation */
+
+.qr-error-animation {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 25px 15px;
+    text-align: center;
+    animation: qrErrorAppear 0.4s ease both;
+}
+
+.qr-error-circle {
+    display: grid;
+    place-items: center;
+    width: 96px;
+    height: 96px;
+    margin-bottom: 20px;
+    border: 3px solid #dc2626;
+    border-radius: 50%;
+    color: #dc2626;
+    background: #fee2e2;
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0.08);
+    animation: qrErrorPop 0.55s ease both;
+}
+
+.qr-error-cross {
+    width: 52px;
+    height: 52px;
+}
+
+.qr-error-cross path {
+    stroke-dasharray: 60;
+    stroke-dashoffset: 60;
+    animation: qrCrossDraw 0.45s ease 0.3s forwards;
+}
+
+.qr-error-animation h2 {
+    margin: 0 0 10px;
+    color: #dc2626;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.qr-error-animation p {
+    max-width: 450px;
+    margin: 0;
+    color: #7f1d1d;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+@keyframes qrErrorPop {
+    0% {
+        opacity: 0;
+        transform: scale(0.2);
+    }
+
+    65% {
+        opacity: 1;
+        transform: scale(1.12);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes qrCrossDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes qrErrorAppear {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+
+
+.qr-upload-section {
+    margin-top: 24px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.qr-upload-section h3 {
+    margin-bottom: 8px;
+}
+
+.qr-upload-section p {
+    margin-bottom: 16px;
+}
+
+.qr-upload-button {
+    display: inline-block;
+    padding: 12px 20px;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.qr-upload-button:hover {
+    background: #1d4ed8;
+}
+

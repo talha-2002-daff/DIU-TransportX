@@ -3,19 +3,13 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 import Login from "./pages/login/Login.jsx";
-
-
 import Register from "./pages/register/Register.jsx";
 import StudentDashboard from "./pages/student/StudentDashboard.jsx";
 import DriverDashboard from "./pages/driver/DriverDashboard.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import FacultyDashboard from "./pages/faculty/FacultyDashboard.jsx";
 
-import {
-    getCurrentUser,
-    logoutUser
-} from "./services/authService.js";
-
+import { logoutUser } from "./services/authService.js";
 import { apiRequest } from "./services/api.js";
 
 function App() {
@@ -30,7 +24,11 @@ function App() {
 
                 if (result.success && result.user) {
                     setUser(result.user);
-                    localStorage.setItem("user", JSON.stringify(result.user));
+
+                    localStorage.setItem(
+                        "user",
+                        JSON.stringify(result.user)
+                    );
                 } else {
                     setUser(null);
                     localStorage.removeItem("user");
@@ -54,7 +52,11 @@ function App() {
                 : newUser.role
         };
 
-        localStorage.setItem("user", JSON.stringify(normalizedUser));
+        localStorage.setItem(
+            "user",
+            JSON.stringify(normalizedUser)
+        );
+
         setUser(normalizedUser);
     }
 
@@ -70,6 +72,7 @@ function App() {
         } finally {
             localStorage.removeItem("user");
             localStorage.removeItem("token");
+
             setUser(null);
             setAuthPage("login");
         }

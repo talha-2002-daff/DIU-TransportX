@@ -1,8 +1,11 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getStudentBusInformation } from "../../services/bussService.js";
-import ParkingBus from "../../components/bus/ParkingMap.jsx";
+import { apiRequest } from "../../services/api.js";
+import GoogleParkingMap from "../../components/bus/GoogleParkingMap.jsx";
+import QrScanner from "../../components/bus/QrScanner.jsx";
 import "../../styles/dashboard.css";
+import "../../styles/qr.css";
 
 function StudentDashboard({ user, onLogout }) {
     const [buses, setBuses] = useState([]);
@@ -12,17 +15,52 @@ function StudentDashboard({ user, onLogout }) {
     const [destination, setDestination] = useState("");
     const [selectedBus, setSelectedBus] = useState(null);
 
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scannedToken, setScannedToken] = useState("");
+    const [scanMessage, setScanMessage] = useState("");
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [verifiedBus, setVerifiedBus] = useState(null);
+
     const origin = "DIU";
 
-    const destinations = [
-        "Dhamrai",
-        "Savar",
-        "Mirpur",
-        "Dhanmondi",
-        "Uttara",
-        "Tongi",
-        "Narayanganj"
-    ];
+    function normalizePoint(point) {
+        return String(point || "").trim().toLowerCase();
+    }
+
+    function getBusPoints(bus) {
+        const pickupPoints = Array.isArray(bus.pickupPoints)
+            ? bus.pickupPoints
+            : [];
+
+        const routePoints = String(bus.route || "")
+            .split(/\s*(?:→|->|\bto\b|\s[-–—]\s|,|\|)\s*/i)
+            .filter(Boolean);
+
+        return pickupPoints.concat(routePoints);
+    }
+
+    const destinations = buses
+        .flatMap(getBusPoints)
+        .map(function (point) {
+            return String(point || "").trim();
+        })
+        .filter(function (point) {
+            return point && normalizePoint(point) !== "diu";
+        })
+        .reduce(function (uniquePoints, point) {
+            const alreadyExists = uniquePoints.some(function (existingPoint) {
+                return normalizePoint(existingPoint) === normalizePoint(point);
+            });
+
+            if (!alreadyExists) {
+                uniquePoints.push(point);
+            }
+
+            return uniquePoints;
+        }, [])
+        .sort(function (first, second) {
+            return first.localeCompare(second);
+        });
 
     async function loadBuses(showLoading) {
         try {
@@ -33,6 +71,7 @@ function StudentDashboard({ user, onLogout }) {
             setError("");
 
             const result = await getStudentBusInformation();
+
             setBuses(result);
 
             setSelectedBus(function (currentBus) {
@@ -43,6 +82,16 @@ function StudentDashboard({ user, onLogout }) {
                 return result.find(function (bus) {
                     return bus._id === currentBus._id;
                 }) || null;
+            });
+
+            setVerifiedBus(function (currentBus) {
+                if (!currentBus) {
+                    return null;
+                }
+
+                return result.find(function (bus) {
+                    return bus._id === currentBus._id;
+                }) || currentBus;
             });
         } catch (requestError) {
             setError(
@@ -66,22 +115,6 @@ function StudentDashboard({ user, onLogout }) {
             clearInterval(interval);
         };
     }, []);
-
-    function normalizePoint(point) {
-        return String(point || "").trim().toLowerCase();
-    }
-
-    function getBusPoints(bus) {
-        const pickupPoints = Array.isArray(bus.pickupPoints)
-            ? bus.pickupPoints
-            : [];
-
-        const routePoints = String(bus.route || "")
-            .split(/\s*(?:→|->|\bto\b)\s*/i)
-            .filter(Boolean);
-
-        return pickupPoints.concat(routePoints);
-    }
 
     function matchesDestination(bus) {
         if (!destination) {
@@ -170,6 +203,122 @@ function StudentDashboard({ user, onLogout }) {
         setSelectedBus(null);
     }
 
+    function selectBus(bus) {
+        setSelectedBus(bus);
+    }
+
+    function getGpsStatus(bus) {
+        return bus.mapLocation?.status || "Unknown";
+    }
+
+    function getGpsDirection(bus) {
+        const direction = bus.mapLocation?.direction;
+
+        if (direction === "to_diu") {
+            return "Going to DIU";
+        }
+
+        if (direction === "from_diu") {
+            return "Leaving DIU";
+        }
+
+        return "Not specified";
+    }
+
+    function getGpsCoordinates(bus) {
+        const location = bus.mapLocation;
+
+        if (
+            location?.latitude == null ||
+            location?.longitude == null
+        ) {
+            return "Not available";
+        }
+
+        return `${location.latitude}, ${location.longitude}`;
+    }
+
+    function getLastGpsUpdate(bus) {
+        const updatedAt = bus.mapLocation?.updatedAt;
+
+        if (!updatedAt) {
+            return "Not available";
+        }
+
+        return new Date(updatedAt).toLocaleString();
+    }
+
+    const handleQrScan = useCallback(async function (decodedText) {
+        const token = decodedText.trim();
+
+        setScannedToken(token);
+        setIsScannerOpen(false);
+        setVerifiedBus(null);
+        setIsVerifying(true);
+        setScanMessage("Verifying bus QR code...");
+
+        try {
+            const result = await apiRequest(
+                "/buses/student/verify-qr",
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        token: token
+                    })
+                }
+            );
+
+            setVerifiedBus(result.bus);
+
+            setBuses(function (previousBuses) {
+                return previousBuses.map(function (bus) {
+                    if (bus._id === result.bus._id) {
+                        return {
+                            ...bus,
+                            ...result.bus
+                        };
+                    }
+
+                    return bus;
+                });
+            });
+
+            setSelectedBus(function (previousBus) {
+                if (previousBus?._id === result.bus._id) {
+                    return {
+                        ...previousBus,
+                        ...result.bus
+                    };
+                }
+
+                return previousBus;
+            });
+
+            setScanMessage(
+                result.message || "Bus QR code verified successfully."
+            );
+        } catch (requestError) {
+            setVerifiedBus(null);
+            setScanMessage(
+                requestError.message || "Unable to verify bus QR code."
+            );
+        } finally {
+            setIsVerifying(false);
+        }
+    }, []);
+
+    function openQrScanner() {
+        setScannedToken("");
+        setScanMessage("");
+        setVerifiedBus(null);
+        setIsVerifying(false);
+        setIsScannerOpen(true);
+    }
+
+    function closeQrScanner() {
+        setIsScannerOpen(false);
+    }
+
     return (
         <main className="dashboard-page">
             <header className="dashboard-header">
@@ -193,8 +342,135 @@ function StudentDashboard({ user, onLogout }) {
                 <h2>
                     Welcome, {user?.name?.split(" ")[0] || "Student"}!
                 </h2>
+
                 <p>Select your destination to find matching buses.</p>
+
+                <button type="button" onClick={openQrScanner}>
+                    Scan Bus QR Code
+                </button>
             </section>
+
+            {isScannerOpen && (
+                <QrScanner
+                    onScan={handleQrScan}
+                    onClose={closeQrScanner}
+                />
+            )}
+
+            {scanMessage && (
+                <section className="dashboard-buses qr-verification-section">
+
+                    {verifiedBus && !isVerifying && (
+                        <div className="qr-success-animation" role="status">
+                            <div className="qr-success-circle">
+                                <svg
+                                    className="qr-success-check"
+                                    viewBox="0 0 52 52"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M14 27 L22 35 L39 17"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </div>
+
+                            <h2>Verification Successful!</h2>
+
+                            <p>
+                                Bus QR verified and student transport
+                                eligibility confirmed. Your boarding has
+                                been recorded.
+                            </p>
+                        </div>
+                    )}
+
+                    {!verifiedBus && !isVerifying && (
+                        <div className="qr-error-animation" role="alert">
+                            <div className="qr-error-circle">
+                                <svg
+                                    className="qr-error-cross"
+                                    viewBox="0 0 52 52"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M16 16 L36 36 M36 16 L16 36"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="5"
+                                        strokeLinecap="round"
+                                    />
+                                </svg>
+                            </div>
+
+                            <h2>Verification Failed!</h2>
+
+                            <p>{scanMessage}</p>
+                        </div>
+                    )}
+
+                    <div className="dashboard-section-heading">
+                        <div>
+                            <h2>Bus QR Verification</h2>
+                            <p>{scanMessage}</p>
+                        </div>
+                    </div>
+
+                    {isVerifying && (
+                        <p className="dashboard-message">
+                            Please wait while we verify the QR code...
+                        </p>
+                    )}
+
+                    {verifiedBus && (
+                        <div className="dashboard-bus-extra">
+                            <p>
+                                <strong>Bus number:</strong>{" "}
+                                {verifiedBus.busNumber}
+                            </p>
+
+                            <p>
+                                <strong>Bus name:</strong>{" "}
+                                {verifiedBus.busName || "Not specified"}
+                            </p>
+
+                            <p>
+                                <strong>Destination:</strong>{" "}
+                                {verifiedBus.destination?.name ||
+                                    "Not specified"}
+                            </p>
+
+                            <p>
+                                <strong>Verification status:</strong>{" "}
+                                Verified
+                            </p>
+
+                            {verifiedBus.studentOccupancy !== undefined && (
+                                <>
+                                    <p>
+                                        <strong>Current student occupancy:</strong>{" "}
+                                        {verifiedBus.studentOccupancy}
+                                    </p>
+
+                                    <p>
+                                        <strong>Available student seats:</strong>{" "}
+                                        {Math.max(
+                                            0,
+                                            verifiedBus.totalSeats -
+                                            verifiedBus.reservedSeats -
+                                            verifiedBus.studentOccupancy
+                                        )}
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </section>
+            )}
 
             <section className="dashboard-stats">
                 <article className="dashboard-stat">
@@ -283,16 +559,15 @@ function StudentDashboard({ user, onLogout }) {
                 </div>
             )}
 
-            {!loading && !error && destination &&
-                filteredBuses.length > 0 && (
-                    <section className="dashboard-map-section">
-                        <ParkingBus
-                            buses={filteredBuses}
-                            onSelectBus={setSelectedBus}
-                            selectedBusId={selectedBus?._id}
-                        />
-                    </section>
-                )}
+            {!loading && !error && filteredBuses.length > 0 && (
+                <section className="dashboard-map-section">
+                    <GoogleParkingMap
+                        buses={filteredBuses}
+                        selectedBusId={selectedBus?._id}
+                        onSelectBus={selectBus}
+                    />
+                </section>
+            )}
 
             {!loading && !error && destination &&
                 filteredBuses.length === 0 && (
@@ -329,20 +604,45 @@ function StudentDashboard({ user, onLogout }) {
                             {selectedBus.currentLocation ||
                                 "Location not updated"}
                         </p>
+
                         <p>
-                            <strong>Parking bay:</strong>{" "}
-                            {selectedBus.mapLocation?.bayId ||
-                                "Not assigned"}
+                            <strong>GPS status:</strong>{" "}
+                            {getGpsStatus(selectedBus)}
                         </p>
+
+                        <p>
+                            <strong>Location sharing:</strong>{" "}
+                            {selectedBus.mapLocation?.isLocationSharing
+                                ? "Active"
+                                : "Inactive"}
+                        </p>
+
+                        <p>
+                            <strong>Direction:</strong>{" "}
+                            {getGpsDirection(selectedBus)}
+                        </p>
+
+                        <p>
+                            <strong>GPS coordinates:</strong>{" "}
+                            {getGpsCoordinates(selectedBus)}
+                        </p>
+
+                        <p>
+                            <strong>Last GPS update:</strong>{" "}
+                            {getLastGpsUpdate(selectedBus)}
+                        </p>
+
                         <p>
                             <strong>Departure:</strong>{" "}
                             {selectedBus.departureTime || "Not specified"}
                         </p>
+
                         <p>
                             <strong>Student occupancy:</strong>{" "}
                             {Number(selectedBus.studentOccupancy || 0)} /{" "}
                             {getStudentCapacity(selectedBus)}
                         </p>
+
                         <p>
                             <strong>Available student seats:</strong>{" "}
                             {getAvailableSeats(selectedBus)}
@@ -422,7 +722,9 @@ function StudentDashboard({ user, onLogout }) {
                                                     : "dashboard-status full"
                                             }
                                         >
-                                            {available > 0 ? "Available" : "Full"}
+                                            {available > 0
+                                                ? "Available"
+                                                : "Full"}
                                         </span>
                                     </div>
 
@@ -433,6 +735,7 @@ function StudentDashboard({ user, onLogout }) {
                                                 {bus.route || "Not specified"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Departure</strong>
                                             <span>
@@ -440,6 +743,7 @@ function StudentDashboard({ user, onLogout }) {
                                                     "Not specified"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Current location</strong>
                                             <span>
@@ -447,6 +751,7 @@ function StudentDashboard({ user, onLogout }) {
                                                     "Location not updated"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Pickup points</strong>
                                             <span>
@@ -509,12 +814,14 @@ function StudentDashboard({ user, onLogout }) {
                                                 <strong>Total seats:</strong>{" "}
                                                 {bus.totalSeats ?? "Not specified"}
                                             </p>
+
                                             <p>
                                                 <strong>
                                                     Reserved faculty/admin seats:
                                                 </strong>{" "}
                                                 {bus.reservedSeats ?? 6}
                                             </p>
+
                                             <p>
                                                 <strong>Student capacity:</strong>{" "}
                                                 {capacity}
