@@ -1,0 +1,194 @@
+
+/* Login page */
+
+.login-page {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 100vh;
+    width: 100%;
+    background: #ffffff;
+}
+
+.login-image {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    background: #123d30;
+}
+
+.login-image img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.login-image-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 60px;
+    color: #ffffff;
+    background: linear-gradient(
+        to top,
+        rgba(5, 35, 25, 0.85),
+        rgba(5, 35, 25, 0.05)
+    );
+}
+
+.login-image-overlay h2 {
+    margin: 0 0 12px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 800;
+}
+
+.login-image-overlay p {
+    margin: 0;
+    font-size: 17px;
+    color: #e5f5eb;
+}
+
+.login-form-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 35px;
+    background: #f8fbf9;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 42px;
+    border: 1px solid #e4ece8;
+    border-radius: 22px;
+    background: #ffffff;
+    box-shadow: 0 15px 45px rgba(22, 61, 47, 0.09);
+}
+
+.login-logo {
+    display: grid;
+    place-items: center;
+    width: 55px;
+    height: 55px;
+    margin-bottom: 25px;
+    border-radius: 16px;
+    color: #ffffff;
+    background: linear-gradient(145deg, #10a875, #056044);
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.login-card h1 {
+    margin: 0 0 10px;
+    color: #153b2d;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.login-description {
+    margin: 0 0 30px;
+    color: #82938b;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.login-card label {
+    display: block;
+    margin: 17px 0 8px;
+    color: #365246;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.login-card input {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid #dce8e0;
+    border-radius: 11px;
+    color: #243e32;
+    background: #fbfdfb;
+    font-size: 13px;
+}
+
+.login-card input:focus {
+    outline: none;
+    border-color: #0a9b6d;
+    box-shadow: 0 0 0 4px rgba(8, 127, 91, 0.09);
+}
+
+.login-card > button[type="submit"] {
+    width: 100%;
+    margin-top: 25px;
+    padding: 14px;
+    border: none;
+    border-radius: 11px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #0da875, #056044);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.login-card > button[type="submit"]:hover {
+    transform: translateY(-2px);
+}
+
+.login-footer {
+    margin: 23px 0 0;
+    color: #82938b;
+    font-size: 12px;
+    text-align: center;
+}
+
+.login-link {
+    padding: 0;
+    border: none;
+    color: #087f5b;
+    background: transparent;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.login-error {
+    margin: 15px 0;
+    color: #b42318;
+    font-size: 12px;
+}
+
+/* Login responsive design */
+
+@media (max-width: 800px) {
+    .login-page {
+        grid-template-columns: 1fr;
+    }
+
+    .login-image {
+        min-height: 280px;
+    }
+
+    .login-form-section {
+        min-height: auto;
+        padding: 35px 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .login-image {
+        min-height: 220px;
+    }
+
+    .login-image-overlay {
+        padding: 25px;
+    }
+
+    .login-card {
+        padding: 28px 22px;
+    }
+}
