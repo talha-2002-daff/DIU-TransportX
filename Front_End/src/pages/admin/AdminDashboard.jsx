@@ -1,6 +1,9 @@
 
 import { useEffect, useState } from "react";
 import { apiRequest } from "../../services/api.js";
+import "../../styles/dashboard.css";
+import "../../styles/admin.css";
+import "../../styles/qr.css";
 
 function convertToTimeInput(time) {
     if (!time) {
@@ -55,7 +58,7 @@ function createEmptyBusForm() {
     return {
         busNumber: "",
         busName: "",
-        route: "",
+        destination: "",
         pickupPoints: "DIU",
         departureTime: "16:20",
         totalSeats: "40"
@@ -82,11 +85,17 @@ function AdminDashboard() {
     const [buses, setBuses] = useState([]);
     const [drivers, setDrivers] = useState([]);
     const [facultyMembers, setFacultyMembers] = useState([]);
+    const [destinations, setDestinations] = useState([]);
+    const [students, setStudents] = useState([]);
+
+    const [studentEligibilityDrafts, setStudentEligibilityDrafts] = useState({});
+    const [savingStudentId, setSavingStudentId] = useState(null);
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [creatingDriver, setCreatingDriver] = useState(false);
     const [creatingFaculty, setCreatingFaculty] = useState(false);
+    const [creatingDestination, setCreatingDestination] = useState(false);
 
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
@@ -94,9 +103,14 @@ function AdminDashboard() {
     const [editingBusId, setEditingBusId] = useState(null);
     const [assignments, setAssignments] = useState({});
 
+    const [destinationName, setDestinationName] = useState("");
+
     const [form, setForm] = useState(createEmptyBusForm);
     const [driverForm, setDriverForm] = useState(createEmptyDriverForm);
     const [facultyForm, setFacultyForm] = useState(createEmptyFacultyForm);
+
+    const [qrData, setQrData] = useState(null); //use state for setting the qr data
+    const [loadingQrBusId, setLoadingQrBusId] = useState(null);
 
     async function loadDashboardData() {
         setLoading(true);
@@ -106,12 +120,29 @@ function AdminDashboard() {
             const results = await Promise.all([
                 apiRequest("/buses"),
                 apiRequest("/auth/drivers"),
-                apiRequest("/auth/faculty")
+                apiRequest("/auth/faculty"),
+                apiRequest("/destinations"),
+                apiRequest("/admin/students")
             ]);
 
             setBuses(results[0].buses || []);
             setDrivers(results[1].drivers || []);
             setFacultyMembers(results[2].facultyMembers || []);
+            setDestinations(results[3].destinations || []);
+            setStudents(results[4].students || []);
+
+            const drafts = {};
+
+            (results[4].students || []).forEach(function (student) {
+                const eligibility = student.transportEligibility || {};
+
+                drafts[student._id] = {
+                    isEligible: eligibility.isEligible === true,
+                    semester: eligibility.semester || ""
+                };
+            });
+
+            setStudentEligibilityDrafts(drafts);
         } catch (requestError) {
             setError(
                 requestError.message || "Failed to load dashboard data"
@@ -124,6 +155,88 @@ function AdminDashboard() {
     useEffect(function () {
         loadDashboardData();
     }, []);
+
+    function handleStudentEligibilityChange(studentId, field, value) {
+        setStudentEligibilityDrafts(function (previousDrafts) {
+            return {
+                ...previousDrafts,
+                [studentId]: {
+                    ...previousDrafts[studentId],
+                    [field]: value
+                }
+            };
+        });
+    }
+
+    async function handleUpdateStudentEligibility(student) {
+        const draft = studentEligibilityDrafts[student._id];
+
+        if (!draft || !draft.semester.trim()) {
+            setError(
+                "Please enter the semester before updating student eligibility." // student eligibity is cheking for the bus
+            );
+            setMessage("");
+            return;
+        }
+
+        setSavingStudentId(student._id);
+        setMessage("");
+        setError("");
+
+        try {
+            const result = await apiRequest(
+                "/admin/students/" +
+                student._id +
+                "/transport-eligibility",
+                {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                        isEligible: draft.isEligible,
+                        semester: draft.semester.trim()
+                    })
+                }
+            );
+
+            if (result.student) {
+                const updatedEligibility =
+                    result.student.transportEligibility;
+
+                setStudents(function (previousStudents) {
+                    return previousStudents.map(function (currentStudent) {
+                        if (currentStudent._id === student._id) {
+                            return {
+                                ...currentStudent,
+                                transportEligibility: updatedEligibility
+                            };
+                        }
+
+                        return currentStudent;
+                    });
+                });
+
+                setStudentEligibilityDrafts(function (previousDrafts) {
+                    return {
+                        ...previousDrafts,
+                        [student._id]: {
+                            isEligible: updatedEligibility.isEligible === true,
+                            semester: updatedEligibility.semester || ""
+                        }
+                    };
+                });
+            }
+
+            setMessage(
+                result.message || "Student eligibility updated successfully"
+            );
+        } catch (requestError) {
+            setError(
+                requestError.message ||
+                "Failed to update student eligibility"
+            );
+        } finally {
+            setSavingStudentId(null);
+        }
+    }
 
     function handleFormChange(event) {
         const { name, value } = event.target;
@@ -158,6 +271,42 @@ function AdminDashboard() {
         });
     }
 
+    async function handleCreateDestination(event) {
+        event.preventDefault();
+
+        if (!destinationName.trim()) {
+            setError("Please enter a destination name.");
+            return;
+        }
+
+        setCreatingDestination(true);
+        setMessage("");
+        setError("");
+
+        try {
+            const result = await apiRequest("/destinations", {
+                method: "POST",
+                body: JSON.stringify({
+                    name: destinationName.trim()
+                })
+            });
+
+            setMessage(
+                result.message || "Destination created successfully"
+            );
+
+            setDestinationName("");
+
+            await loadDashboardData();
+        } catch (requestError) {
+            setError(
+                requestError.message || "Failed to create destination"
+            );
+        } finally {
+            setCreatingDestination(false);
+        }
+    }
+
     function resetForm() {
         setEditingBusId(null);
         setForm(createEmptyBusForm());
@@ -173,7 +322,7 @@ function AdminDashboard() {
         const busData = {
             busNumber: form.busNumber.trim(),
             busName: form.busName.trim(),
-            route: form.route.trim(),
+            destination: form.destination,
             pickupPoints: form.pickupPoints
                 .split(",")
                 .map(function (point) {
@@ -225,7 +374,9 @@ function AdminDashboard() {
         setForm({
             busNumber: bus.busNumber || "",
             busName: bus.busName || "",
-            route: bus.route || "",
+            destination: bus.destination
+                ? bus.destination._id
+                : "",
             pickupPoints: Array.isArray(bus.pickupPoints)
                 ? bus.pickupPoints.join(", ")
                 : "",
@@ -237,6 +388,44 @@ function AdminDashboard() {
             top: 0,
             behavior: "smooth"
         });
+    }
+
+    async function handleGenerateQr(bus) { // handling the qr code generastion
+        setLoadingQrBusId(bus._id);
+        setMessage("");
+        setError("");
+
+        try {
+            const result = await apiRequest(
+                "/buses/" + bus._id + "/qr"
+            );
+
+            setQrData({
+                busNumber: result.busNumber,
+                qrCode: result.qrCode  // image data is strong here
+            });
+
+            setMessage(
+                result.message || "Bus QR code generated successfully"
+            );
+
+            window.setTimeout(function () {
+                const qrPanel = document.getElementById("bus-qr-panel");
+
+                if (qrPanel) {
+                    qrPanel.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center"
+                    });
+                }
+            }, 100);
+        } catch (requestError) {
+            setError(
+                requestError.message || "Failed to generate bus QR code"
+            );
+        } finally {
+            setLoadingQrBusId(null);
+        }
     }
 
     async function handleDeactivateBus(bus) {
@@ -265,6 +454,10 @@ function AdminDashboard() {
 
             if (editingBusId === bus._id) {
                 resetForm();
+            }
+
+            if (qrData && qrData.busNumber === bus.busNumber) {
+                setQrData(null);
             }
 
             await loadDashboardData();
@@ -353,7 +546,7 @@ function AdminDashboard() {
     async function handleAssignDriver(bus) {
         const selectedDriverId = assignments[bus._id];
 
-        if (selectedDriverId === undefined) {
+        if (!selectedDriverId) {
             setError("Please select a driver first.");
             return;
         }
@@ -367,16 +560,13 @@ function AdminDashboard() {
                 {
                     method: "PATCH",
                     body: JSON.stringify({
-                        assignedDriver: selectedDriverId || null
+                        driverId: selectedDriverId
                     })
                 }
             );
 
             setMessage(
-                result.message ||
-                (selectedDriverId
-                    ? "Driver assigned successfully"
-                    : "Driver unassigned successfully")
+                result.message || "Driver assigned successfully"
             );
 
             setAssignments(function (previousAssignments) {
@@ -418,6 +608,13 @@ function AdminDashboard() {
         return faculty.isActive !== false;
     });
 
+    const eligibleStudents = students.filter(function (student) {
+        return student.transportEligibility &&
+            student.transportEligibility.isEligible === true;
+    });
+
+    const notEligibleStudents = students.length - eligibleStudents.length;
+
     if (loading) {
         return (
             <main className="dashboard">
@@ -437,7 +634,8 @@ function AdminDashboard() {
                     </p>
                     <h1>Admin Dashboard</h1>
                     <p>
-                        Manage buses, drivers, faculty accounts, and transport assignments.
+                        Manage students, transport eligibility, buses, drivers,
+                        faculty accounts, destinations, and transport assignments.
                     </p>
                 </div>
 
@@ -500,6 +698,247 @@ function AdminDashboard() {
                 </article>
             </section>
 
+            <section className="panel">
+                <div className="section-heading">
+                    <div>
+                        <h2>Student Management</h2>
+                        <p>
+                            Check students' payment slips and manually update
+                            their transport eligibility for each semester.
+                        </p>
+                    </div>
+                </div>
+
+                <section className="stats-grid">
+                    <article className="stat-card">
+                        <p>Total Students</p>
+                        <h2>{students.length}</h2>
+                    </article>
+
+                    <article className="stat-card">
+                        <p>Eligible Students</p>
+                        <h2>{eligibleStudents.length}</h2>
+                    </article>
+
+                    <article className="stat-card">
+                        <p>Not Eligible</p>
+                        <h2>{notEligibleStudents}</h2>
+                    </article>
+                </section>
+
+                {students.length === 0 ? (
+                    <p>No registered students found.</p>
+                ) : (
+                    <div className="table-wrapper">
+                        <table className="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Student Name</th>
+                                    <th>Student ID</th>
+                                    <th>Email</th>
+                                    <th>Semester</th>
+                                    <th>Eligibility Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {students.map(function (student) {
+                                    const draft =
+                                        studentEligibilityDrafts[student._id] || {
+                                            isEligible: false,
+                                            semester: ""
+                                        };
+
+                                    const currentEligibility =
+                                        student.transportEligibility || {};
+
+                                    return (
+                                        <tr key={student._id}>
+                                            <td>
+                                                <strong>{student.name}</strong>
+                                            </td>
+
+                                            <td>{student.studentId}</td>
+
+                                            <td>{student.email}</td>
+
+                                            <td>
+                                                <input
+                                                    type="text"
+                                                    value={draft.semester}
+                                                    placeholder="Example: Fall 2026"
+                                                    onChange={function (event) {
+                                                        handleStudentEligibilityChange(
+                                                            student._id,
+                                                            "semester",
+                                                            event.target.value
+                                                        );
+                                                    }}
+                                                    disabled={
+                                                        savingStudentId === student._id
+                                                    }
+                                                />
+                                            </td>
+
+                                            <td>
+                                                <span
+                                                    className={
+                                                        currentEligibility.isEligible === true
+                                                            ? "status-badge active"
+                                                            : "status-badge inactive"
+                                                    }
+                                                >
+                                                    {currentEligibility.isEligible === true
+                                                        ? "Eligible"
+                                                        : "Not Eligible"}
+                                                </span>
+
+                                                <select
+                                                    value={
+                                                        draft.isEligible
+                                                            ? "true"
+                                                            : "false"
+                                                    }
+                                                    onChange={function (event) {
+                                                        handleStudentEligibilityChange(
+                                                            student._id,
+                                                            "isEligible",
+                                                            event.target.value === "true"
+                                                        );
+                                                    }}
+                                                    disabled={
+                                                        savingStudentId === student._id
+                                                    }
+                                                >
+                                                    <option value="false">
+                                                        Not Eligible
+                                                    </option>
+
+                                                    <option value="true">
+                                                        Eligible
+                                                    </option>
+                                                </select>
+                                            </td>
+
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="admin-primary-button"
+                                                    onClick={function () {
+                                                        handleUpdateStudentEligibility(
+                                                            student
+                                                        );
+                                                    }}
+                                                    disabled={
+                                                        savingStudentId === student._id
+                                                    }
+                                                >
+                                                    {savingStudentId === student._id
+                                                        ? "Saving..."
+                                                        : "Save Status"}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                <p>
+                    <small>
+                        The admin must manually verify the official DIU payment
+                        slip before selecting Eligible. Changes are saved only
+                        after clicking Save Status.
+                    </small>
+                </p>
+            </section>
+
+            <section className="panel admin-form-panel">
+                <div className="section-heading">
+                    <div>
+                        <h2>Destination Management</h2>
+                        <p>
+                            Create and view destinations available for bus assignments.
+                        </p>
+                    </div>
+                </div>
+
+                <form onSubmit={handleCreateDestination}>
+                    <div className="admin-form-grid">
+                        <div className="admin-form-field">
+                            <label htmlFor="destinationName">
+                                Destination Name
+                            </label>
+
+                            <input
+                                id="destinationName"
+                                type="text"
+                                value={destinationName}
+                                onChange={function (event) {
+                                    setDestinationName(event.target.value);
+                                }}
+                                placeholder="Example: Gazipur"
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="admin-form-actions">
+                        <button
+                            type="submit"
+                            className="admin-primary-button"
+                            disabled={creatingDestination}
+                        >
+                            {creatingDestination
+                                ? "Creating..."
+                                : "Add Destination"}
+                        </button>
+                    </div>
+                </form>
+
+                <div className="section-heading">
+                    <div>
+                        <h3>Available Destinations</h3>
+                        <p>
+                            {destinations.length} active destinations
+                        </p>
+                    </div>
+                </div>
+
+                {destinations.length === 0 ? (
+                    <p>No active destinations available. Create one above.</p>
+                ) : (
+                    <div className="table-wrapper">
+                        <table className="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Destination Name</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {destinations.map(function (destination) {
+                                    return (
+                                        <tr key={destination._id}>
+                                            <td>{destination.name}</td>
+                                            <td>
+                                                <span className="status-badge active">
+                                                    Active
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </section>
+
             <section className="panel admin-form-panel">
                 <div className="section-heading">
                     <div>
@@ -540,15 +979,35 @@ function AdminDashboard() {
                         </div>
 
                         <div className="admin-form-field">
-                            <label htmlFor="route">Route</label>
-                            <input
-                                id="route"
-                                name="route"
-                                value={form.route}
+                            <label htmlFor="destination">Destination</label>
+                            <select
+                                id="destination"
+                                name="destination"
+                                value={form.destination}
                                 onChange={handleFormChange}
-                                placeholder="DIU to Savar"
                                 required
-                            />
+                            >
+                                <option value="">
+                                    Select a destination
+                                </option>
+
+                                {destinations.map(function (destination) {
+                                    return (
+                                        <option
+                                            key={destination._id}
+                                            value={destination._id}
+                                        >
+                                            {destination.name}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+
+                            {destinations.length === 0 && (
+                                <span>
+                                    No active destinations found. Please create a destination first.
+                                </span>
+                            )}
                         </div>
 
                         <div className="admin-form-field">
@@ -599,7 +1058,7 @@ function AdminDashboard() {
                         <button
                             type="submit"
                             className="admin-primary-button"
-                            disabled={saving}
+                            disabled={saving || destinations.length === 0}
                         >
                             {saving
                                 ? "Saving..."
@@ -863,6 +1322,66 @@ function AdminDashboard() {
                 )}
             </section>
 
+            {qrData && (
+                <div className="qr-modal-overlay">
+                    <section className="qr-modal" id="bus-qr-panel">
+                        <button
+                            type="button"
+                            className="qr-modal-close"
+                            onClick={function () {
+                                setQrData(null);
+                            }}
+                            aria-label="Close QR code"
+                        >
+                            ×
+                        </button>
+
+                        <h2>Bus QR Code</h2>
+
+                        <p className="qr-modal-description">
+                            Scan this QR code to identify the bus and verify student boarding.
+                        </p>
+
+                        <div className="qr-bus-number">
+                            {qrData.busNumber}
+                        </div>
+
+                        <div className="qr-image-container">
+                            <img
+                                src={qrData.qrCode}
+                                alt={"QR code for bus " + qrData.busNumber}
+                                className="qr-image"
+                            />
+                        </div>
+
+                        <div className="qr-modal-actions">
+                            <a
+                                href={qrData.qrCode}
+                                download={qrData.busNumber + "-QR.png"}
+                                className="qr-download-button"
+                            >
+                                Download QR
+                            </a>
+
+                            <button
+                                type="button"
+                                className="qr-print-button"
+                                onClick={function () {
+                                    window.print();
+                                }}
+                            >
+                                Print QR
+                            </button>
+                        </div>
+
+                        <p className="qr-instruction">
+                            Download and print this QR code. Place it near the entrance
+                            of the corresponding bus so students can scan it when boarding.
+                        </p>
+                    </section>
+                </div>
+            )}
+
             <section className="panel">
                 <div className="section-heading">
                     <div>
@@ -880,7 +1399,7 @@ function AdminDashboard() {
                                 <tr>
                                     <th>Bus Number</th>
                                     <th>Bus Name</th>
-                                    <th>Route</th>
+                                    <th>Destination</th>
                                     <th>Departure</th>
                                     <th>Seats</th>
                                     <th>Assigned Driver</th>
@@ -907,7 +1426,13 @@ function AdminDashboard() {
                                             </td>
 
                                             <td>{bus.busName}</td>
-                                            <td>{bus.route}</td>
+
+                                            <td>
+                                                {bus.destination
+                                                    ? bus.destination.name
+                                                    : "Not assigned"}
+                                            </td>
+
                                             <td>{bus.departureTime}</td>
 
                                             <td>
@@ -980,6 +1505,22 @@ function AdminDashboard() {
 
                                             <td>
                                                 <div className="admin-row-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="qr-code-button"
+                                                        onClick={function () {
+                                                            handleGenerateQr(bus);
+                                                        }}
+                                                        disabled={
+                                                            bus.isActive === false ||
+                                                            loadingQrBusId === bus._id
+                                                        }
+                                                    >
+                                                        {loadingQrBusId === bus._id
+                                                            ? "Generating..."
+                                                            : "Generate QR"}
+                                                    </button>
+
                                                     <button
                                                         type="button"
                                                         className="admin-edit-button"

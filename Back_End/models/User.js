@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
@@ -31,6 +32,21 @@ const userSchema = new mongoose.Schema(
             default: null,
             required: function () {
                 return this.role === "student";
+            }
+        },
+        transportEligibility: {
+            isEligible: {
+                type: Boolean,
+                default: false
+            },
+            semester: {
+                type: String,
+                trim: true,
+                default: null
+            },
+            validUntil: {
+                type: Date,
+                default: null
             }
         },
         isActive: {

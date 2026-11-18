@@ -1,8 +1,9 @@
 
 import { useEffect, useState } from "react";
 import { getStudentBusInformation } from "../../services/bussService.js";
-import ParkingBus from "../../components/bus/ParkingMap.jsx";
+import GoogleParkingMap from "../../components/bus/GoogleParkingMap.jsx";
 import "../../styles/dashboard.css";
+import "../../styles/faculty.css";
 
 function FacultyDashboard({ user, onLogout }) {
     const [buses, setBuses] = useState([]);
@@ -14,15 +15,21 @@ function FacultyDashboard({ user, onLogout }) {
 
     const origin = "DIU";
 
-    const destinations = [
-        "Dhamrai",
-        "Savar",
-        "Mirpur",
-        "Dhanmondi",
-        "Uttara",
-        "Tongi",
-        "Narayanganj"
-    ];
+    function normalizePoint(point) {
+        return String(point || "").trim().toLowerCase();
+    }
+
+    function getBusPoints(bus) {
+        const pickupPoints = Array.isArray(bus.pickupPoints)
+            ? bus.pickupPoints
+            : [];
+
+        const routePoints = String(bus.route || "")
+            .split(/\s*(?:→|->|\bto\b|\s[-–—]\s|,|\|)\s*/i)
+            .filter(Boolean);
+
+        return pickupPoints.concat(routePoints);
+    }
 
     async function loadBuses(showLoading) {
         try {
@@ -33,6 +40,7 @@ function FacultyDashboard({ user, onLogout }) {
             setError("");
 
             const result = await getStudentBusInformation();
+
             setBuses(result);
 
             setSelectedBus(function (currentBus) {
@@ -68,21 +76,27 @@ function FacultyDashboard({ user, onLogout }) {
         };
     }, []);
 
-    function normalizePoint(point) {
-        return String(point || "").trim().toLowerCase();
-    }
+    const destinations = Array.from(
+        new Map(
+            buses.flatMap(getBusPoints)
+                .filter(function (point) {
+                    return (
+                        normalizePoint(point) !== "" &&
+                        normalizePoint(point) !== "diu"
+                    );
+                })
+                .map(function (point) {
+                    const cleanedPoint = String(point).trim();
 
-    function getBusPoints(bus) {
-        const pickupPoints = Array.isArray(bus.pickupPoints)
-            ? bus.pickupPoints
-            : [];
-
-        const routePoints = String(bus.route || "")
-            .split(/\s*(?:→|->|\bto\b)\s*/i)
-            .filter(Boolean);
-
-        return pickupPoints.concat(routePoints);
-    }
+                    return [
+                        normalizePoint(cleanedPoint),
+                        cleanedPoint
+                    ];
+                })
+        ).values()
+    ).sort(function (first, second) {
+        return first.localeCompare(second);
+    });
 
     function matchesDestination(bus) {
         if (!destination) {
@@ -171,20 +185,103 @@ function FacultyDashboard({ user, onLogout }) {
         await loadBuses(true);
     }
 
+    function getGpsStatus(bus) {
+        const location = bus.mapLocation;
+
+        if (!location || location.isLocationSharing !== true) {
+            return "Not sharing location";
+        }
+
+        if (location.status === "offline") {
+            return "Offline";
+        }
+
+        if (location.status === "parked") {
+            return "Parked";
+        }
+
+        if (location.status === "on_route") {
+            return "On route";
+        }
+
+        return location.status || "Unknown";
+    }
+
+    function getGpsDirection(bus) {
+        const direction = bus.mapLocation?.direction;
+
+        if (direction === "to_diu") {
+            return "Going to DIU";
+        }
+
+        if (direction === "from_diu") {
+            return "Leaving DIU";
+        }
+
+        return "Not specified";
+    }
+
+    function getGpsCoordinates(bus) {
+        const location = bus.mapLocation;
+
+        if (
+            !location ||
+            location.latitude === null ||
+            location.latitude === undefined ||
+            location.longitude === null ||
+            location.longitude === undefined
+        ) {
+            return "Not available";
+        }
+
+        return `${location.latitude}, ${location.longitude}`;
+    }
+
+    function getLastGpsUpdate(bus) {
+        const updatedAt = bus.mapLocation?.updatedAt;
+
+        if (!updatedAt) {
+            return "Not available";
+        }
+
+        return new Date(updatedAt).toLocaleString();
+    }
+
     return (
         <main className="dashboard-page faculty-dashboard">
-            <header className="dashboard-header">
-                <div>
-                    <p className="dashboard-eyebrow">DIU TransportX</p>
+
+            <header className="dashboard-header faculty-header">
+                <div className="faculty-header-content">
+                    <p className="dashboard-eyebrow">
+                        DIU TransportX
+                    </p>
+
                     <h1>Faculty Dashboard</h1>
+
                     <p>
                         Welcome, {user?.name?.split(" ")[0] || "Faculty"}.
-                        Find buses and check their parking locations.
+                        Find buses, view their routes and track their
+                        live locations.
                     </p>
+                </div>
+
+                <div className="faculty-header-visual" aria-hidden="true">
+                    <div className="faculty-road">
+                        <div className="faculty-road-lines" />
+                    </div>
+
+                    <div className="faculty-animated-bus">
+                        <div className="faculty-bus-window" />
+                        <div className="faculty-bus-front" />
+
+                        <span className="faculty-bus-wheel faculty-wheel-front" />
+                        <span className="faculty-bus-wheel faculty-wheel-back" />
+                    </div>
                 </div>
 
                 <div className="dashboard-user">
                     <span>{user?.name || "Faculty Member"}</span>
+
                     <button type="button" onClick={onLogout}>
                         Log out
                     </button>
@@ -229,6 +326,7 @@ function FacultyDashboard({ user, onLogout }) {
                 <div className="dashboard-route-filters">
                     <label>
                         From
+
                         <select value={origin} disabled>
                             <option value="DIU">DIU</option>
                         </select>
@@ -236,6 +334,7 @@ function FacultyDashboard({ user, onLogout }) {
 
                     <label>
                         To
+
                         <select
                             value={destination}
                             onChange={function (event) {
@@ -247,10 +346,7 @@ function FacultyDashboard({ user, onLogout }) {
 
                             {destinations.map(function (location) {
                                 return (
-                                    <option
-                                        key={location}
-                                        value={location}
-                                    >
+                                    <option key={location} value={location}>
                                         {location}
                                     </option>
                                 );
@@ -277,22 +373,22 @@ function FacultyDashboard({ user, onLogout }) {
             {!loading && error && (
                 <div className="dashboard-error" role="alert">
                     <p>{error}</p>
+
                     <button type="button" onClick={refreshBuses}>
                         Try again
                     </button>
                 </div>
             )}
 
-            {!loading && !error && destination &&
-                filteredBuses.length > 0 && (
-                    <section className="dashboard-map-section">
-                        <ParkingBus
-                            buses={filteredBuses}
-                            onSelectBus={setSelectedBus}
-                            selectedBusId={selectedBus?._id}
-                        />
-                    </section>
-                )}
+            {!loading && !error && filteredBuses.length > 0 && (
+                <section className="dashboard-map-section">
+                    <GoogleParkingMap
+                        buses={filteredBuses}
+                        onSelectBus={setSelectedBus}
+                        selectedBusId={selectedBus?._id}
+                    />
+                </section>
+            )}
 
             {!loading && !error && destination &&
                 filteredBuses.length === 0 && (
@@ -307,10 +403,10 @@ function FacultyDashboard({ user, onLogout }) {
                     <div className="dashboard-section-heading">
                         <div>
                             <h2>Selected Bus: {selectedBus.busNumber}</h2>
+
                             <p>
                                 {selectedBus.busName || "DIU Bus"} —{" "}
-                                {selectedBus.route ||
-                                    "Route not specified"}
+                                {selectedBus.route || "Route not specified"}
                             </p>
                         </div>
 
@@ -330,28 +426,52 @@ function FacultyDashboard({ user, onLogout }) {
                             {selectedBus.currentLocation ||
                                 "Location not updated"}
                         </p>
+
                         <p>
                             <strong>Parking bay:</strong>{" "}
                             {selectedBus.mapLocation?.bayId ||
                                 "Not assigned"}
                         </p>
+
                         <p>
                             <strong>Departure:</strong>{" "}
-                            {selectedBus.departureTime ||
-                                "Not specified"}
+                            {selectedBus.departureTime || "Not specified"}
                         </p>
+
                         <p>
                             <strong>Student occupancy:</strong>{" "}
                             {Number(selectedBus.studentOccupancy || 0)} /{" "}
                             {getStudentCapacity(selectedBus)}
                         </p>
+
                         <p>
                             <strong>Available student seats:</strong>{" "}
                             {getAvailableSeats(selectedBus)}
                         </p>
+
                         <p>
                             <strong>Reserved faculty/admin seats:</strong>{" "}
                             {selectedBus.reservedSeats ?? 6}
+                        </p>
+
+                        <p>
+                            <strong>GPS tracking status:</strong>{" "}
+                            {getGpsStatus(selectedBus)}
+                        </p>
+
+                        <p>
+                            <strong>Direction:</strong>{" "}
+                            {getGpsDirection(selectedBus)}
+                        </p>
+
+                        <p>
+                            <strong>GPS coordinates:</strong>{" "}
+                            {getGpsCoordinates(selectedBus)}
+                        </p>
+
+                        <p>
+                            <strong>Last GPS update:</strong>{" "}
+                            {getLastGpsUpdate(selectedBus)}
                         </p>
                     </div>
                 </section>
@@ -361,10 +481,11 @@ function FacultyDashboard({ user, onLogout }) {
                 <div className="dashboard-section-heading">
                     <div>
                         <h2>Available Buses</h2>
+
                         <p>
                             {destination
                                 ? "Buses matching your selected destination."
-                                : "Select a destination to find matching buses."}
+                                : "View available buses and their locations."}
                         </p>
                     </div>
 
@@ -405,10 +526,8 @@ function FacultyDashboard({ user, onLogout }) {
                             const occupancy = Number(
                                 bus.studentOccupancy || 0
                             );
-                            const percentage =
-                                getOccupancyPercentage(bus);
-                            const isSelected =
-                                selectedBus?._id === bus._id;
+                            const percentage = getOccupancyPercentage(bus);
+                            const isSelected = selectedBus?._id === bus._id;
 
                             return (
                                 <article
@@ -420,6 +539,7 @@ function FacultyDashboard({ user, onLogout }) {
                                             <span className="dashboard-bus-label">
                                                 BUS {bus.busNumber}
                                             </span>
+
                                             <h3>
                                                 {bus.busName || "DIU Bus"}
                                             </h3>
@@ -442,10 +562,10 @@ function FacultyDashboard({ user, onLogout }) {
                                         <p>
                                             <strong>Route</strong>
                                             <span>
-                                                {bus.route ||
-                                                    "Not specified"}
+                                                {bus.route || "Not specified"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Departure</strong>
                                             <span>
@@ -453,6 +573,7 @@ function FacultyDashboard({ user, onLogout }) {
                                                     "Not specified"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Current location</strong>
                                             <span>
@@ -460,12 +581,18 @@ function FacultyDashboard({ user, onLogout }) {
                                                     "Location not updated"}
                                             </span>
                                         </p>
+
                                         <p>
                                             <strong>Pickup points</strong>
                                             <span>
                                                 {getBusPoints(bus).join(", ") ||
                                                     "Not specified"}
                                             </span>
+                                        </p>
+
+                                        <p>
+                                            <strong>GPS status</strong>
+                                            <span>{getGpsStatus(bus)}</span>
                                         </p>
                                     </div>
 
@@ -523,12 +650,14 @@ function FacultyDashboard({ user, onLogout }) {
                                                 {bus.totalSeats ??
                                                     "Not specified"}
                                             </p>
+
                                             <p>
                                                 <strong>
                                                     Reserved faculty/admin seats:
                                                 </strong>{" "}
                                                 {bus.reservedSeats ?? 6}
                                             </p>
+
                                             <p>
                                                 <strong>Student capacity:</strong>{" "}
                                                 {capacity}

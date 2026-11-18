@@ -1,3 +1,4 @@
+
 import { apiRequest } from "./api.js";
 
 const allowedRoles = ["student", "driver", "admin", "faculty"];
@@ -15,11 +16,19 @@ async function loginUser(email, password) {
         throw new Error(result.message || "Login failed");
     }
 
-    if (!result.user || !allowedRoles.includes(result.user.role)) {
-        throw new Error("Invalid account role. Please contact the administrator.");
+    if (
+        !result.user ||
+        !allowedRoles.includes(
+            typeof result.user.role === "string"
+                ? result.user.role.trim().toLowerCase()
+                : ""
+        )
+    ) {
+        throw new Error(
+            "Invalid account role. Please contact the administrator."
+        );
     }
 
-    localStorage.removeItem("token");
     localStorage.setItem("user", JSON.stringify(result.user));
 
     return result;
@@ -31,8 +40,8 @@ async function logoutUser() {
             method: "POST"
         });
     } finally {
-        localStorage.removeItem("token");
         localStorage.removeItem("user");
+        localStorage.removeItem("token");
     }
 }
 

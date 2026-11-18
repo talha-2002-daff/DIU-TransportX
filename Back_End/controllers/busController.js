@@ -1,16 +1,20 @@
+
 const mongoose = require("mongoose");
+const QRCode = require("qrcode");
 const Bus = require("../models/Bus");
+const Destination = require("../models/Destination");
+const User = require("../models/User");
+const Boarding = require("../models/Boarding");
 
 async function createBus(req, res, next) {
     try {
         const {
             busNumber,
             busName,
-            route,
+            destination,
             pickupPoints,
             departureTime,
             totalSeats,
-            assignedDriver,
             currentLocation
         } = req.body;
 
@@ -19,8 +23,8 @@ async function createBus(req, res, next) {
             !busNumber.trim() ||
             typeof busName !== "string" ||
             !busName.trim() ||
-            typeof route !== "string" ||
-            !route.trim() ||
+            typeof destination !== "string" ||
+            !mongoose.isValidObjectId(destination) ||
             typeof departureTime !== "string" ||
             !departureTime.trim() ||
             !Number.isInteger(totalSeats) ||
@@ -45,10 +49,22 @@ async function createBus(req, res, next) {
             });
         }
 
+        const selectedDestination = await Destination.findOne({
+            _id: destination,
+            isActive: true
+        });
+
+        if (!selectedDestination) {
+            return res.status(404).json({
+                success: false,
+                message: "Selected destination was not found or is inactive"
+            });
+        }
+
         const bus = await Bus.create({
             busNumber: busNumber.trim(),
             busName: busName.trim(),
-            route: route.trim(),
+            destination: selectedDestination._id,
             pickupPoints: (pickupPoints || []).map(function (point) {
                 return point.trim();
             }),
@@ -59,6 +75,8 @@ async function createBus(req, res, next) {
                     ? currentLocation.trim()
                     : "Location not updated"
         });
+
+        await bus.populate("destination", "name");
 
         return res.status(201).json({
             success: true,
@@ -91,6 +109,7 @@ async function getAllBuses(req, res, next) {
     try {
         const buses = await Bus.find({ isActive: true })
             .populate("assignedDriver", "name email")
+            .populate("destination", "name")
             .sort({ busNumber: 1 });
 
         return res.status(200).json({
@@ -115,7 +134,9 @@ async function getBusById(req, res, next) {
         const bus = await Bus.findOne({
             _id: req.params.id,
             isActive: true
-        }).populate("assignedDriver", "name email");
+        })
+            .populate("assignedDriver", "name email")
+            .populate("destination", "name");
 
         if (!bus) {
             return res.status(404).json({
@@ -133,14 +154,215 @@ async function getBusById(req, res, next) {
     }
 }
 
+async function getBusQrCode(req, res, next) {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid bus ID"
+            });
+        }
+
+        const bus = await Bus.findOne({
+            _id: id,
+            isActive: true
+        }).select("+qrToken");
+
+        if (!bus) {
+            return res.status(404).json({
+                success: false,
+                message: "Active bus not found"
+            });
+        }
+
+        if (!bus.qrToken) {
+            return res.status(404).json({
+                success: false,
+                message: "QR token not found for this bus"
+            });
+        }
+
+        const qrCodeImage = await QRCode.toDataURL(bus.qrToken); // generating the image receiving the token
+
+        return res.status(200).json({
+            success: true,
+            message: "Bus QR code generated successfully",
+            busNumber: bus.busNumber,
+            qrCode: qrCodeImage
+        });
+    } catch (error) {
+        return next(error);
+    }
+}
+
+async function verifyBusQrToken(req, res, next) { // for the varification when the student scan the QR code
+    let occupancyUpdated = false;
+    let busId = null;
+
+    try {
+        const { token } = req.body;
+
+        if (
+            typeof token !== "string" ||
+            !/^[a-f0-9]{64}$/i.test(token.trim())
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid QR code"
+            });
+        }
+
+        const bus = await Bus.findOne({
+            qrToken: token.trim(),
+            isActive: true
+        })
+            .select("_id busNumber busName destination totalSeats reservedSeats studentOccupancy")
+            .populate("destination", "name");
+
+        if (!bus) {
+            return res.status(404).json({
+                success: false,
+                message: "Invalid QR code or inactive bus"
+            });
+        }
+
+        busId = bus._id;
+
+        const student = await User.findById(req.user.id)
+            .select("name studentId transportEligibility");
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: "Student account not found"
+            });
+        }
+
+        const eligibility = student.transportEligibility;
+
+        if (!eligibility || !eligibility.isEligible) {
+            return res.status(403).json({
+                success: false,
+                message: "Your transport registration has not been approved by the admin"
+            });
+        }
+
+        if (
+            eligibility.validUntil &&
+            new Date(eligibility.validUntil).getTime() < Date.now()
+        ) {
+            return res.status(403).json({
+                success: false,
+                message: "Your transport eligibility has expired. Please contact the transport admin"
+            });
+        }
+
+        // Creating a boarding record after successful QR and eligibility verification
+        const boarding = await Boarding.create({
+            student: student._id,
+            bus: bus._id
+        });
+
+        // Updating occupancy only when student seats are available
+        const updatedBus = await Bus.findOneAndUpdate(
+            {
+                _id: bus._id,
+                isActive: true,
+                $expr: {
+                    $lt: [
+                        "$studentOccupancy",
+                        {
+                            $subtract: [
+                                "$totalSeats",
+                                "$reservedSeats"
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                $inc: {
+                    studentOccupancy: 1
+                }
+            },
+            {
+                new: true
+            }
+        ).populate("destination", "name");
+
+        if (!updatedBus) {
+            await Boarding.findByIdAndDelete(boarding._id);
+
+            return res.status(409).json({
+                success: false,
+                message: "No student seats are available on this bus"
+            });
+        }
+
+        occupancyUpdated = true;
+
+        return res.status(200).json({
+            success: true,
+            message: "Boarding verified successfully",
+            bus: updatedBus,
+            boarding: {
+                id: boarding._id,
+                studentName: student.name,
+                boardedAt: boarding.boardedAt
+            },
+            occupancy: {
+                studentCapacity:
+                    updatedBus.totalSeats - updatedBus.reservedSeats,
+                studentOccupancy: updatedBus.studentOccupancy,
+                availableStudentSeats: Math.max(
+                    0,
+                    updatedBus.totalSeats -
+                    updatedBus.reservedSeats -
+                    updatedBus.studentOccupancy
+                )
+            },
+            eligibility: {
+                isEligible: eligibility.isEligible,
+                semester: eligibility.semester,
+                validUntil: eligibility.validUntil
+            }
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: "You have already boarded this bus"
+            });
+        }
+
+        if (occupancyUpdated && busId) {
+            await Bus.updateOne(
+                { _id: busId },
+                { $inc: { studentOccupancy: -1 } }
+            );
+        }
+
+        return next(error);
+    }
+}
+
 async function updateBus(req, res, next) {
     try {
         const { id } = req.params;
 
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid bus ID"
+            });
+        }
+
         const allowedFields = [
             "busNumber",
             "busName",
-            "route",
+            "destination",
             "pickupPoints",
             "departureTime",
             "totalSeats"
@@ -183,15 +405,30 @@ async function updateBus(req, res, next) {
             });
         }
 
-        if (
-            updates.route !== undefined &&
-            (typeof updates.route !== "string" ||
-                !updates.route.trim())
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "Please provide a valid route"
+        if (updates.destination !== undefined) {
+            if (
+                typeof updates.destination !== "string" ||
+                !mongoose.isValidObjectId(updates.destination)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Please select a valid destination"
+                });
+            }
+
+            const selectedDestination = await Destination.findOne({
+                _id: updates.destination,
+                isActive: true
             });
+
+            if (!selectedDestination) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Selected destination was not found or is inactive"
+                });
+            }
+
+            updates.destination = selectedDestination._id;
         }
 
         if (
@@ -269,6 +506,9 @@ async function updateBus(req, res, next) {
 
         await bus.save();
 
+        await bus.populate("assignedDriver", "name email");
+        await bus.populate("destination", "name");
+
         return res.status(200).json({
             success: true,
             message: "Bus information updated successfully",
@@ -337,6 +577,8 @@ module.exports = {
     createBus,
     getAllBuses,
     getBusById,
+    getBusQrCode,
+    verifyBusQrToken,
     updateBus,
     deactivateBus
 };

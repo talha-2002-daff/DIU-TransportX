@@ -1,12 +1,8 @@
+
 const mongoose = require("mongoose");
 const Bus = require("../models/Bus");
 const User = require("../models/User");
-
-const VALID_BAYS = [
-    "A1", "A2", "A3", "A4", "A5",
-    "B1", "B2", "B3", "B4", "B5",
-    "C1", "C2", "C3", "C4", "C5"
-];
+const Boarding = require("../models/Boarding");
 
 async function assignDriver(req, res, next) {
     try {
@@ -65,10 +61,11 @@ async function assignDriver(req, res, next) {
     }
 }
 
+
+// map location controlling machinism
 async function updateBusLocation(req, res, next) {
     try {
         const busId = req.params.id;
-        const currentLocation = req.body.currentLocation;
         const mapLocation = req.body.mapLocation;
 
         if (!mongoose.Types.ObjectId.isValid(busId)) {
@@ -78,40 +75,25 @@ async function updateBusLocation(req, res, next) {
             });
         }
 
-        if (
-            typeof currentLocation !== "string" ||
-            !currentLocation.trim()
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "Current location is required."
-            });
-        }
-
         if (!mapLocation || typeof mapLocation !== "object") {
             return res.status(400).json({
                 success: false,
-                message: "A parking bay selection is required."
+                message: "Location information is required."
             });
         }
 
-        if (
-            typeof mapLocation.bayId !== "string" ||
-            !VALID_BAYS.includes(mapLocation.bayId.trim().toUpperCase())
-        ) {
+        if (typeof mapLocation.isLocationSharing !== "boolean") {
             return res.status(400).json({
                 success: false,
-                message: "Select a valid parking bay from A1 to C5."
+                message: "Location sharing status is required."
             });
         }
-
-        const bayId = mapLocation.bayId.trim().toUpperCase();
 
         const bus = await Bus.findOne({
             _id: busId,
             isActive: true,
             assignedDriver: req.user.id
-        });
+        }).populate("destination", "name");
 
         if (!bus) {
             return res.status(404).json({
@@ -120,35 +102,103 @@ async function updateBusLocation(req, res, next) {
             });
         }
 
-        const existingBus = await Bus.findOne({
-            _id: { $ne: bus._id },
-            isActive: true,
-            "mapLocation.bayId": bayId
-        });
-
-        if (existingBus) {
-            return res.status(409).json({
-                success: false,
-                message: `Parking bay ${bayId} is already assigned to bus ${existingBus.busNumber}.`
-            });
-        }
-
         if (!bus.mapLocation) {
             bus.mapLocation = {};
         }
 
-        bus.currentLocation = currentLocation.trim();
-        bus.mapLocation.bayId = bayId;
+        if (!mapLocation.isLocationSharing) {
+            bus.mapLocation.status = "offline";
+            bus.mapLocation.direction = null;
+            bus.mapLocation.isLocationSharing = false;
+            bus.mapLocation.updatedAt = new Date();
+            bus.currentLocation = "Location sharing stopped";
+
+            await bus.save();
+
+            return res.status(200).json({
+                success: true,
+                message: "Bus location sharing stopped.",
+                bus: bus
+            });
+        }
+
+        const latitude = Number(mapLocation.latitude);
+        const longitude = Number(mapLocation.longitude);
+        const status = mapLocation.status;
+        const direction = mapLocation.direction;
+
+        if (
+            mapLocation.latitude === undefined ||
+            mapLocation.latitude === null ||
+            mapLocation.longitude === undefined ||
+            mapLocation.longitude === null ||
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude) ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid GPS coordinates are required."
+            });
+        }
+
+        if (!["parked", "on_route"].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Status must be parked or on_route."
+            });
+        }
+
+        if (
+            status === "on_route" &&
+            !["to_diu", "from_diu"].includes(direction)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Select a valid route direction."
+            });
+        }
+
+        if (
+            status === "parked" &&
+            direction !== null &&
+            direction !== undefined &&
+            !["to_diu", "from_diu"].includes(direction)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid route direction."
+            });
+        }
+
+        bus.mapLocation.latitude = latitude;
+        bus.mapLocation.longitude = longitude;
+        bus.mapLocation.status = status;
+        bus.mapLocation.direction = direction || null;
+        bus.mapLocation.isLocationSharing = true;
+        bus.mapLocation.bayId = null;
         bus.mapLocation.x = null;
         bus.mapLocation.y = null;
-        bus.mapLocation.label = `Parking Bay ${bayId}`;
+
+        if (status === "parked") {
+            bus.mapLocation.label = "Bus parked at current GPS location";
+        } else if (direction === "to_diu") {
+            bus.mapLocation.label = "Bus travelling towards DIU";
+        } else {
+            bus.mapLocation.label = "Bus travelling from DIU";
+        }
+
         bus.mapLocation.updatedAt = new Date();
+        bus.currentLocation = bus.mapLocation.label;
 
         await bus.save();
 
         return res.status(200).json({
             success: true,
-            message: `Bus location updated to parking bay ${bayId}.`,
+            message: "Bus GPS location updated successfully.",
             bus: bus
         });
     } catch (error) {
@@ -161,7 +211,7 @@ async function getAssignedBus(req, res, next) {
         const bus = await Bus.findOne({
             assignedDriver: req.user.id,
             isActive: true
-        });
+        }).populate("destination", "name");
 
         if (!bus) {
             return res.status(404).json({
@@ -179,8 +229,86 @@ async function getAssignedBus(req, res, next) {
     }
 }
 
+
+// Boarding is controlled here for the driver account
+async function getDriverBoardings(req, res, next) {
+    try {
+        const bus = await Bus.findOne({
+            assignedDriver: req.user.id,
+            isActive: true
+        }).select("_id busNumber busName studentOccupancy totalSeats reservedSeats");
+
+        if (!bus) {
+            return res.status(404).json({
+                success: false,
+                message: "No active bus is assigned to your account."
+            });
+        }
+
+        const boardings = await Boarding.find({
+            bus: bus._id
+        })
+            .populate("student", "name studentId")
+            .sort({ boardedAt: -1 });
+
+        return res.status(200).json({
+            success: true,
+            bus: bus,
+            count: boardings.length,
+            boardings: boardings.map(function (boarding) {
+                return {
+                    id: boarding._id,
+                    studentName: boarding.student.name,
+                    studentId: boarding.student.studentId,
+                    boardedAt: boarding.boardedAt
+                };
+            })
+        });
+    } catch (error) {
+        return next(error);
+    }
+}
+
+
+// The driver can clear the completed trip before starting the next one.
+async function clearDriverBoardings(req, res, next) {
+    try {
+        const bus = await Bus.findOne({
+            assignedDriver: req.user.id,
+            isActive: true
+        });
+
+        if (!bus) {
+            return res.status(404).json({
+                success: false,
+                message: "No active bus is assigned to your account."
+            });
+        }
+
+        // Only remove boarding records belonging to this driver's assigned bus.
+        const result = await Boarding.deleteMany({
+            bus: bus._id
+        });
+
+        // The next trip starts with an empty student seat count.
+        bus.studentOccupancy = 0;
+        await bus.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Boarding records cleared successfully.",
+            deletedCount: result.deletedCount,
+            bus: bus
+        });
+    } catch (error) {
+        return next(error);
+    }
+}
+
 module.exports = {
     assignDriver,
     updateBusLocation,
-    getAssignedBus
+    getAssignedBus,
+    getDriverBoardings,
+    clearDriverBoardings
 };

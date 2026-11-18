@@ -9,15 +9,19 @@ const {
     createBus,
     getAllBuses,
     getBusById,
+    getBusQrCode,
+    verifyBusQrToken,
     updateBus,
     deactivateBus
-} = require("../controllers/busController"); // admin functionality
+} = require("../controllers/busController");
 
 const {
     assignDriver,
     updateBusLocation,
-    getAssignedBus
-} = require("../controllers/driverController"); // admin functionality
+    getAssignedBus,
+    getDriverBoardings,
+    clearDriverBoardings
+} = require("../controllers/driverController");
 
 const {
     getStudentBusInformation
@@ -47,6 +51,13 @@ router.get(
     getAllBuses
 );
 
+router.get(
+    "/:id/qr",
+    authMiddleware,
+    roleMiddleware("admin"),
+    getBusQrCode
+);
+
 router.patch(
     "/:id/assign-driver",
     authMiddleware,
@@ -69,10 +80,32 @@ router.get(
 );
 
 router.get(
+    "/driver/boardings",
+    authMiddleware,
+    roleMiddleware("driver"),
+    getDriverBoardings
+);
+
+// Clear the completed trip's boarding records.
+router.delete(
+    "/driver/boardings",
+    authMiddleware,
+    roleMiddleware("driver"),
+    clearDriverBoardings
+);
+
+router.get(
     "/student/information",
     authMiddleware,
     allowStudentOrFaculty,
     getStudentBusInformation
+);
+
+router.post(
+    "/student/verify-qr",
+    authMiddleware,
+    roleMiddleware("student"),
+    verifyBusQrToken
 );
 
 router.patch(
